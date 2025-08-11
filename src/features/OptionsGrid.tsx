@@ -1,4 +1,5 @@
-// src/features/OptionsGrid.tsx
+import React from "react";
+
 export function OptionsGrid({
   options,
   onChoose,
@@ -6,18 +7,17 @@ export function OptionsGrid({
   options: number[];
   onChoose: (v: number) => void;
 }) {
-  // строим адаптивную сетку от количества
-  const cols = Math.ceil(Math.sqrt(options.length));
+  // 3 колонки под 6 вариантов; на будущее можно сделать адаптив
   return (
-    <div
-      className="grid gap-3"
-      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-    >
+    <div className="grid grid-cols-3 gap-3">
       {options.map((o) => (
         <button
           key={o}
           onClick={() => onChoose(o)}
-          className="rounded-xl py-4 text-lg font-semibold shadow border active:scale-[0.98] transition"
+          className="rounded-2xl py-4 text-2xl font-extrabold text-white
+                     shadow-lg border border-white/10 active:scale-[0.98] transition-all
+                     bg-gradient-to-r from-sky-500 to-indigo-500
+                     hover:from-sky-400 hover:to-indigo-400"
           aria-label={`Ответ ${o}`}
         >
           {o}

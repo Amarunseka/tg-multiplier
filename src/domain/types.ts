@@ -11,28 +11,32 @@ export type Question = {
   a: number;
   b: number;
   correct: number;
-  options: number[]; // длина = optionsPerQuestion, перемешаны
+  options: number[];
 };
 
-export type GameState =
-  | { status: "idle" }
-  | {
-      status: "asking";
-      index: number;            // номер вопроса [0..N-1]
-      question: Question;
-      endsAt: number;           // performance.now() + secs*1000
-      answered: boolean;        // защита от гонок
-    }
-  | {
-      status: "feedback";
-      index: number;
-      question: Question;
-      isCorrect: boolean;
-      chosen?: number;
-    }
-  | {
-      status: "finished";
-      correct: number;
-      total: number;
-      spentMs: number;
-    };
+export type AskingState = {
+  status: "asking";
+  index: number;        // номер текущего вопроса
+  question: Question;
+  endsAt: number;       // deadline в ms (performance.now())
+  answered?: boolean;   // guard от двойных кликов/таймера
+};
+
+export type FeedbackState = {
+  status: "feedback";
+  index: number;
+  question: Question;
+  isCorrect: boolean;
+  chosen?: number | null;
+};
+
+export type FinishedState = {
+  status: "finished";
+  total: number;
+  correct: number;
+  spentMs: number;
+};
+
+export type IdleState = { status: "idle" };
+
+export type GameState = IdleState | AskingState | FeedbackState | FinishedState;
