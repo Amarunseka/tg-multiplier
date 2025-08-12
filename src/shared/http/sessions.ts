@@ -1,44 +1,43 @@
-import { http } from "../http/httpClient";
+// src/shared/http/sessions.ts
+import { http } from "./httpClient";
 
 export type Range = [number, number];
 
 export type SessionStartRequest = {
-  id?: null; // по ТЗ
-  startedAt: string; // ISO
+  id?: null;
+  startedAt: string;
   secondsPerQuestion: number;
   multiplicandRange: Range;
   multiplierRange: Range;
   questionsPerRound: number;
 
-  // опционально — метаданные клиента
   appVersion?: string;
   theme?: "light" | "dark" | "unknown";
-  platform?: string;     // "ios/android/desktop"
-  language?: string;     // "ru", "en", ...
+  platform?: string;
+  language?: string;
   userAgent?: string;
 };
 
-export type SessionStartResponse = {
-  id: string;
-};
+export type SessionStartResponse = { id: string };
 
 export type QuestionEvent = {
-  index: number;    // 0..N-1
+  index: number;           // 0..N-1
   a: number;
   b: number;
   correct: number;
-  chosen?: number | null; // null если не успел
+  chosen?: number | null;  // null если не успел
   isCorrect: boolean;
-  timeMs: number;   // время ответа на этот вопрос
+  timeMs: number;
 };
 
 export type SessionFinishRequest = {
   id: string;
-  finishedAt: string; // ISO
+  finishedAt: string;
   correctCount: number;
   wrongCount: number;
   spentMs: number;
   events: QuestionEvent[];
+  requestId?: string;      // для идемпотентности на бэке (если будешь поддерживать)
 };
 
 export async function startSession(payload: SessionStartRequest) {
@@ -50,9 +49,12 @@ export async function startSession(payload: SessionStartRequest) {
 }
 
 export async function finishSession(payload: SessionFinishRequest) {
-  return http<void>("/api/sessions/" + payload.id, {
+  // важно: keepalive переживает закрытие/сворачивание
+  await http<void>("/api/sessions/" + encodeURIComponent(payload.id), {
     method: "POST",
     body: JSON.stringify(payload),
-    allowNoContent: true, // <- ключевая настройка
+    keepalive: true,
+    allowNoContent: true, // бэк может ответить 204
   });
+  return true;
 }
