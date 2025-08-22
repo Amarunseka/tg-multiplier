@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { initTelegram, getClientMeta } from "../shared/tg/useTelegram";
-import { startGameWithSession, choose, expire, next } from "../domain/gameMachine";
 import type { GameState } from "../domain/types";
 import { Timer } from "./Timer";
 import { OptionsGrid } from "./OptionsGrid";
@@ -10,19 +9,11 @@ import { startSession, finishSession } from "../shared/http/sessions";
 import { fetchUser, saveUserName, type UserStats } from "../shared/http/user";
 import { getConfig } from "../shared/config/api";
 import WebApp from "@twa-dev/sdk";
+import { Shell } from "./components/Shell";
+import { NameForm } from "./components/NameForm";
+import { GameController } from "../domain/GameController";
 
 type AppStage = "loadingUser" | "newUser" | "dashboard" | "playing" | "finishing" | "roundResult";
-
-// маленький uuid для requestId
-function uuid(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return (crypto as any).randomUUID();
-  const tpl = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
-  return tpl.replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
 
 export default function GameScreen() {
   const [appStage, setAppStage] = useState<AppStage>("loadingUser");
@@ -30,22 +21,15 @@ export default function GameScreen() {
 
   const [cfg, setCfg] = useState<Awaited<ReturnType<typeof getConfig>> | null>(null);
   const [state, setState] = useState<GameState>({ status: "idle" });
-  const [ctx, setCtx] = useState<any>(null); // sessionId, events, prevAchieved, finishRequestId
+  const controllerRef = useRef<GameController | null>(null);
 
   // гварды против дублей
   const userLoadedRef = useRef(false);
   const startingRef = useRef(false);
   const finishingRef = useRef(false);
 
-  const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="min-h-screen relative overflow-hidden">
-      <div className="absolute inset-0 bg-pearls" />
-      <div className="relative p-4 flex flex-col gap-4 text-white">{children}</div>
-    </div>
-  );
-
   useEffect(() => {
-    try { initTelegram(); } catch {}
+    try { initTelegram(); } catch { /* ignore */ }
   }, []);
 
   // 1) загружаем пользователя один раз
@@ -136,25 +120,15 @@ export default function GameScreen() {
 
               try {
                 const { id } = await startSession(payload);
-                const started = startGameWithSession(freshCfg, id);
-                setState(started.state);
-                setCtx({
-                  ...started.ctx,
-                  sessionId: id,
-                  prevAchieved: user.assignment.achievedCorrect,
-                  finishRequestId: uuid(),
-                });
+                const ctrl = new GameController(freshCfg, id, user.assignment.achievedCorrect);
+                controllerRef.current = ctrl;
+                setState(ctrl.state);
                 setAppStage("playing");
               } catch (e) {
                 console.warn("startSession failed, continue offline", e);
-                const started = startGameWithSession(freshCfg, "offline");
-                setState(started.state);
-                setCtx({
-                  ...started.ctx,
-                  sessionId: "offline",
-                  prevAchieved: user.assignment.achievedCorrect,
-                  finishRequestId: uuid(),
-                });
+                const ctrl = new GameController(freshCfg, "offline", user.assignment.achievedCorrect);
+                controllerRef.current = ctrl;
+                setState(ctrl.state);
                 setAppStage("playing");
               } finally {
                 startingRef.current = false;
@@ -180,11 +154,17 @@ export default function GameScreen() {
           <Timer
             endsAt={state.endsAt}
             totalSeconds={cfg.secondsPerQuestion}
-            onExpire={() => setState((s) => expire(s, ctx))}
+            onExpire={() => {
+              const ctrl = controllerRef.current;
+              if (ctrl) setState(ctrl.expire());
+            }}
           />
           <OptionsGrid
             options={options}
-            onChoose={(v) => setState((s) => choose(s, ctx, v))}
+            onChoose={(v) => {
+              const ctrl = controllerRef.current;
+              if (ctrl) setState(ctrl.choose(v));
+            }}
           />
         </Shell>
       );
@@ -202,13 +182,16 @@ export default function GameScreen() {
           <FeedbackModal
             isCorrect={isCorrect}
             correct={question.correct}
-            onNext={() => setState((s) => next(s, ctx))}
+            onNext={() => {
+              const ctrl = controllerRef.current;
+              if (ctrl) setState(ctrl.next());
+            }}
           />
         </Shell>
       );
     }
 
-    if (state.status === "finished" && ctx?.sessionId) {
+    if (state.status === "finished" && controllerRef.current?.sessionId) {
       setAppStage("finishing");
     }
 
@@ -216,34 +199,36 @@ export default function GameScreen() {
   }
 
   // Финиш — надёжная отправка + подтверждение от бэка
-  if (appStage === "finishing" && state.status === "finished" && ctx?.sessionId) {
+  if (appStage === "finishing" && state.status === "finished" && controllerRef.current?.sessionId) {
     if (!finishingRef.current) {
       finishingRef.current = true;
 
       // просим Телеграм не закрывать приложение, пока сохраняем
-      try { WebApp.enableClosingConfirmation?.(); } catch {}
+      try { WebApp.enableClosingConfirmation?.(); } catch { /* ignore */ }
 
       (async () => {
+        const ctrl = controllerRef.current!;
         try {
           const expectedDelta = state.correct;
-          const prevAchieved = ctx.prevAchieved ?? 0;
+          const prevAchieved = ctrl.prevAchieved ?? 0;
+          let updated: UserStats | null = null;
 
           // 1) отправка финиша (keepalive установлен в sessions.ts)
-          if (ctx.sessionId !== "offline") {
+          if (ctrl.sessionId !== "offline") {
             await finishSession({
-              id: ctx.sessionId,
+              id: ctrl.sessionId,
               finishedAt: new Date().toISOString(),
               correctCount: state.correct,
               wrongCount: state.total - state.correct,
               spentMs: state.spentMs,
-              events: ctx.events ?? [],
-              requestId: ctx.finishRequestId as string,
+              events: ctrl.events ?? [],
+              requestId: ctrl.finishRequestId,
             });
           }
 
           // 2) Подтверждение: ждём, пока achievedCorrect вырастет на expectedDelta
           // если оффлайн — сразу пропускаем проверку
-          if (ctx.sessionId !== "offline") {
+          if (ctrl.sessionId !== "offline") {
             let attempt = 0;
             const maxDelay = 5000;
             const hardTimeoutMs = 20000; // максимум 20с ждём бэк
@@ -252,11 +237,11 @@ export default function GameScreen() {
             while (true) {
               attempt++;
               try {
-                const updated = await fetchUser();
-                if (updated) {
-                  const now = updated.assignment.achievedCorrect;
+                const fresh = await fetchUser();
+                if (fresh) {
+                  const now = fresh.assignment.achievedCorrect;
                   if (now >= prevAchieved + expectedDelta) {
-                    setUser(updated);
+                    updated = fresh;
                     break;
                   }
                 }
@@ -270,8 +255,27 @@ export default function GameScreen() {
               await new Promise(r => setTimeout(r, delay));
             }
           }
+
+          // 3) если бэк не подтвердил — обновляем статы локально
+          if (!updated && user) {
+            updated = {
+              ...user,
+              today: {
+                ...user.today,
+                total: user.today.total + state.total,
+                correct: user.today.correct + state.correct,
+                wrong: user.today.wrong + (state.total - state.correct),
+              },
+              assignment: {
+                ...user.assignment,
+                achievedCorrect: prevAchieved + expectedDelta,
+              },
+            };
+          }
+
+          if (updated) setUser(updated);
         } finally {
-          try { WebApp.disableClosingConfirmation?.(); } catch {}
+          try { WebApp.disableClosingConfirmation?.(); } catch { /* ignore */ }
           setAppStage("roundResult");
           finishingRef.current = false;
         }
@@ -287,7 +291,8 @@ export default function GameScreen() {
 
   // Экран результата круга
   if (appStage === "roundResult" && user && state.status === "finished") {
-    const left = Math.max(0, user.assignment.targetCorrect - user.assignment.achievedCorrect);
+    const achieved = (controllerRef.current?.prevAchieved ?? user.assignment.achievedCorrect) + state.correct;
+    const left = Math.max(0, user.assignment.targetCorrect - achieved);
     return (
       <Shell>
         <ResultScreen
@@ -314,25 +319,15 @@ export default function GameScreen() {
             };
             try {
               const { id } = await startSession(payload);
-              const started = startGameWithSession(freshCfg, id);
-              setState(started.state);
-              setCtx({
-                ...started.ctx,
-                sessionId: id,
-                prevAchieved: user.assignment.achievedCorrect,
-                finishRequestId: uuid(),
-              });
+              const ctrl = new GameController(freshCfg, id, user.assignment.achievedCorrect);
+              controllerRef.current = ctrl;
+              setState(ctrl.state);
               setAppStage("playing");
             } catch (e) {
               console.warn("startSession failed, continue offline", e);
-              const started = startGameWithSession(freshCfg, "offline");
-              setState(started.state);
-              setCtx({
-                ...started.ctx,
-                sessionId: "offline",
-                prevAchieved: user.assignment.achievedCorrect,
-                finishRequestId: uuid(),
-              });
+              const ctrl = new GameController(freshCfg, "offline", user.assignment.achievedCorrect);
+              controllerRef.current = ctrl;
+              setState(ctrl.state);
               setAppStage("playing");
             } finally {
               startingRef.current = false;
@@ -340,7 +335,7 @@ export default function GameScreen() {
           }}
           onMenu={() => {
             setState({ status: "idle" });
-            setCtx(null);
+            controllerRef.current = null;
             setCfg(null);
             setAppStage("dashboard");
           }}
@@ -350,47 +345,4 @@ export default function GameScreen() {
   }
 
   return <Shell>Загрузка…</Shell>;
-}
-
-/** Форма имени с показом ошибки */
-function NameForm({
-  onSubmit,
-}: {
-  onSubmit: (name: string, setError: (msg: string) => void) => void | Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  return (
-    <form
-      className="w-full max-w-md mx-auto rounded-3xl p-6 shadow-2xl border border-white/10 backdrop-blur-md"
-      style={{ background: "rgba(14,31,26,0.9)" }}
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (!name.trim() || busy) return;
-        setBusy(true);
-        setError(null);
-        await onSubmit(name.trim(), (msg) => setError(msg));
-        setBusy(false);
-      }}
-    >
-      <label className="block text-sm opacity-80 mb-2">Имя</label>
-      <input
-        className="w-full rounded-xl px-4 py-3 bg-white/10 border border-white/15 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-sky-500"
-        placeholder="Введите имя"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      {error && <div className="mt-2 text-rose-300 text-sm">{error}</div>}
-      <button
-        disabled={!name.trim() || busy}
-        className="mt-4 w-full rounded-2xl py-3 text-xl font-bold text-white
-                   bg-gradient-to-r from-sky-600 to-indigo-600
-                   hover:from-sky-500 hover:to-indigo-500 active:scale-[0.98] transition disabled:opacity-50"
-      >
-        Сохранить
-      </button>
-    </form>
-  );
 }

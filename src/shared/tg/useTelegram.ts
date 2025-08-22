@@ -15,7 +15,7 @@ export function initTelegram() {
 }
 
 export function getInitDataPayload() {
-  const w = window as any;
+  const w = window as unknown as { Telegram?: { WebApp?: typeof WebApp } };
   const twa = w?.Telegram?.WebApp;
   return {
     initData: twa?.initData || "",
@@ -23,10 +23,20 @@ export function getInitDataPayload() {
   };
 }
 
-export function getClientMeta() {
+export function getClientMeta(): {
+  appVersion: string;
+  theme: "light" | "dark" | "unknown";
+  platform: string;
+  language: string;
+  userAgent: string;
+} {
   return {
     appVersion: "webapp-1.0.0",
-    theme: (document.documentElement.dataset.theme as any) ?? "unknown",
+    theme: (document.documentElement.dataset.theme as
+      | "light"
+      | "dark"
+      | "unknown"
+      | undefined) ?? "unknown",
     platform: navigator.platform,
     language: navigator.language,
     userAgent: navigator.userAgent,
