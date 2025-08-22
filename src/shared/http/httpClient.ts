@@ -29,7 +29,7 @@ export async function http<T>(
     throw new Error(msg);
   }
 
-  // ✅ ВАЖНО: пустым считаем ТОЛЬКО 204 или Content-Length: 0
+  // ✅ ВАЖНО: пустым считаем ТОЛЬКО 204 или Content-Length: 0.
   if (init.allowNoContent) {
     const cl = res.headers.get("content-length");
     if (res.status === 204 || cl === "0") {
