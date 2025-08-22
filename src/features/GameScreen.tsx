@@ -211,6 +211,7 @@ export default function GameScreen() {
         try {
           const expectedDelta = state.correct;
           const prevAchieved = ctrl.prevAchieved ?? 0;
+          let updated: UserStats | null = null;
 
           // 1) отправка финиша (keepalive установлен в sessions.ts)
           if (ctrl.sessionId !== "offline") {
@@ -236,11 +237,11 @@ export default function GameScreen() {
             while (true) {
               attempt++;
               try {
-                const updated = await fetchUser();
-                if (updated) {
-                  const now = updated.assignment.achievedCorrect;
+                const fresh = await fetchUser();
+                if (fresh) {
+                  const now = fresh.assignment.achievedCorrect;
                   if (now >= prevAchieved + expectedDelta) {
-                    setUser(updated);
+                    updated = fresh;
                     break;
                   }
                 }
@@ -254,6 +255,25 @@ export default function GameScreen() {
               await new Promise(r => setTimeout(r, delay));
             }
           }
+
+          // 3) если бэк не подтвердил — обновляем статы локально
+          if (!updated && user) {
+            updated = {
+              ...user,
+              today: {
+                ...user.today,
+                total: user.today.total + state.total,
+                correct: user.today.correct + state.correct,
+                wrong: user.today.wrong + (state.total - state.correct),
+              },
+              assignment: {
+                ...user.assignment,
+                achievedCorrect: prevAchieved + expectedDelta,
+              },
+            };
+          }
+
+          if (updated) setUser(updated);
         } finally {
           try { WebApp.disableClosingConfirmation?.(); } catch { /* ignore */ }
           setAppStage("roundResult");
@@ -271,7 +291,8 @@ export default function GameScreen() {
 
   // Экран результата круга
   if (appStage === "roundResult" && user && state.status === "finished") {
-    const left = Math.max(0, user.assignment.targetCorrect - user.assignment.achievedCorrect);
+    const achieved = (controllerRef.current?.prevAchieved ?? user.assignment.achievedCorrect) + state.correct;
+    const left = Math.max(0, user.assignment.targetCorrect - achieved);
     return (
       <Shell>
         <ResultScreen
