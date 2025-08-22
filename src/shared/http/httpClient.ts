@@ -40,7 +40,6 @@ export async function http<T>(
   const text = await res.text();
 
   if (!text) {
-    // Если реально пустая строка — это тоже «без контента», но только когда разрешили
     if (init.allowNoContent) return undefined as T;
     throw new Error("Пустой ответ от сервера, а мы ждали данные");
   }
