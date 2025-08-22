@@ -6,12 +6,14 @@ export async function http<T>(
   const headers = new Headers(init.headers);
 
   // Telegram initData (из Телеги или dev-стаба)
-  let initData = (window as any)?.Telegram?.WebApp?.initData;
+  let initData: string | undefined = (
+    window as unknown as { Telegram?: { WebApp?: { initData?: string } } }
+  )?.Telegram?.WebApp?.initData;
   if (!initData) {
     try {
       const saved = localStorage.getItem("tg_initdata_dev");
       if (saved) initData = saved;
-    } catch {}
+    } catch { /* ignore */ }
   }
   if (initData) headers.set("X-Telegram-InitData", initData);
 
@@ -25,7 +27,7 @@ export async function http<T>(
     try {
       const t = await res.text();
       if (t) msg += `: ${t}`;
-    } catch {}
+    } catch { /* ignore */ }
     throw new Error(msg);
   }
 
