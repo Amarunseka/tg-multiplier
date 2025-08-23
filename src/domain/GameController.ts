@@ -5,7 +5,7 @@ import { uuid } from "../shared/utils/uuid";
 
 export class GameController {
   public state: GameState;
-  private ctx: GameCtx;
+  private readonly ctx: GameCtx;
   public prevAchieved: number;
   public finishRequestId: string;
 
