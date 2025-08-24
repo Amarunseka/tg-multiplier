@@ -10,7 +10,8 @@ export default defineConfig({
         host: true,
         allowedHosts: ["amarunseka.ru"], // 👈 разрешаем Cloudflare-домен
         proxy: {
-            "/api": {target: "http://localhost:8088", changeOrigin: true},
+            "/api": {
+                target: "http://multiplier-app-deploy:8088", changeOrigin: true},
         },
     },
 });
