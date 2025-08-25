@@ -58,6 +58,7 @@ export default function GameScreen() {
 
         (async () => {
             try {
+                console.log(window.Telegram?.WebApp?.initData)
                 console.warn("[fetchUser] start");
                 const u = await fetchUser();
                 if (!u) {

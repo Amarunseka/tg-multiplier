@@ -15,7 +15,7 @@ export async function http<T>(
       if (saved) initData = saved;
     } catch { /* ignore */ }
   }
-  if (initData) headers.set("X-Telegram-InitData", initData);
+  if (initData) headers.set("X-Custom-Tg-InitData", initData);
 
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
