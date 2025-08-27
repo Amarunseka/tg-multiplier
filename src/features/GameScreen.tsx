@@ -39,9 +39,9 @@ export default function GameScreen() {
     useEffect(() => {
         const tg = window?.Telegram?.WebApp;
         console.log(">>> [TG SDK]:", tg);
-        console.log(">>> [initData]:", tg?.initData);
-        console.log(">>> [user]:", tg?.initDataUnsafe?.user);
-        console.log(">>> [theme]:", tg?.colorScheme, tg?.themeParams);
+        //console.log(">>> [initData]:", tg?.initData);
+        //console.log(">>> [user]:", tg?.initDataUnsafe?.user);
+        //console.log(">>> [theme]:", tg?.colorScheme, tg?.themeParams);
     }, []);
 
     useEffect(() => {
@@ -58,8 +58,8 @@ export default function GameScreen() {
 
         (async () => {
             try {
-                console.log(window.Telegram?.WebApp?.initData)
-                console.warn("[fetchUser] start");
+                //console.log(window.Telegram?.WebApp?.initData)
+                console.log("[fetchUser] start");
                 const u = await fetchUser();
                 if (!u) {
                     // новый пользователь (200 пусто или 204)
@@ -78,66 +78,6 @@ export default function GameScreen() {
             }
         })();
     }, []);
-
-    // Ошибка сервиса
-    if (appStage === "serviceDown") {
-        return (
-            <Shell>
-                <div className="max-w-lg mx-auto p-6 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-md"
-                     style={{ background: "rgba(14,31,26,0.9)" }}>
-                    <h1 className="text-2xl font-bold mb-3">Сервис временно недоступен</h1>
-                    <p className="opacity-80 mb-4">
-                        Попробуй ещё раз позже. Мы сохраним прогресс, как только связь восстановится.
-                    </p>
-                    <button
-                        className="w-full rounded-2xl py-3 text-xl font-bold text-white
-                     bg-gradient-to-r from-rose-600 to-orange-600
-                     hover:from-rose-500 hover:to-orange-500 active:scale-[0.98] transition"
-                        onClick={async () => {
-                            // Локальный retry без перезагрузки страницы
-                            try {
-                                const u = await fetchUser();
-                                if (!u) {
-                                    setUser(null);
-                                    setAppStage("newUser");
-                                } else {
-                                    setUser(u);
-                                    setAppStage("dashboard");
-                                }
-                            } catch (e) {
-                                // остаёмся на serviceDown
-                                console.warn("retry fetchUser failed", e);
-                            }
-                        }}
-                    >
-                        Попробовать ещё раз
-                    </button>
-                </div>
-            </Shell>
-        );
-    }
-
-    // Новый пользователь
-    if (appStage === "newUser") {
-        return (
-            <Shell>
-                <h1 className="text-3xl font-extrabold text-center">Привет! Как тебя зовут?</h1>
-                <NameForm
-                    onSubmit={async (name, setError) => {
-                        await saveUserName(name);
-                        const u = await fetchUser();
-                        const savedName = u?.userName?.trim();
-                        if (!u || !savedName || savedName !== name.trim()) {
-                            setError("Что-то пошло не так. Попробуй ввести имя ещё раз.");
-                            return;
-                        }
-                        setUser(u);
-                        setAppStage("dashboard");
-                    }}
-                />
-            </Shell>
-        );
-    }
 
     // Дашборд
     if (appStage === "dashboard" && user) {
@@ -159,9 +99,9 @@ export default function GameScreen() {
                         <div className="text-right font-bold text-rose-300">{today.wrong}</div>
                         <div className="opacity-80">Оценка</div>
                         <div className="text-right font-bold">{today.grade}</div>
-                        <div className="opacity-80">Задание на сегодня</div>
+                        <div className="opacity-80">Сегодня осталось пройти:</div>
                         <div className="text-right font-bold">
-                            {user.assignment.achievedCorrect} / {user.assignment.targetCorrect}
+                            {user.assignment.achievedCorrect} из {user.assignment.targetCorrect}
                         </div>
                     </div>
 
@@ -188,16 +128,18 @@ export default function GameScreen() {
 
                             try {
                                 const {id} = await startSession(payload);
+                                if (!id) {
+                                    // Бэк ответил без id → считаем, что сервис не работает
+                                    setAppStage("serviceDown");
+                                    return;
+                                }
                                 const ctrl = new GameController(freshCfg, id, user.assignment.achievedCorrect);
                                 controllerRef.current = ctrl;
                                 setState(ctrl.state);
                                 setAppStage("playing");
                             } catch (e) {
-                                console.warn("startSession failed, continue offline", e);
-                                const ctrl = new GameController(freshCfg, "offline", user.assignment.achievedCorrect);
-                                controllerRef.current = ctrl;
-                                setState(ctrl.state);
-                                setAppStage("playing");
+                                console.warn("startSession failed", e);
+                                setAppStage("serviceDown"); // раньше тут был оффлайн, теперь сервис недоступен
                             } finally {
                                 startingRef.current = false;
                             }
@@ -411,6 +353,66 @@ export default function GameScreen() {
                         setState({status: "idle"});
                         controllerRef.current = null;
                         setCfg(null);
+                        setAppStage("dashboard");
+                    }}
+                />
+            </Shell>
+        );
+    }
+
+    // Ошибка сервиса
+    if (appStage === "serviceDown") {
+        return (
+            <Shell>
+                <div className="max-w-lg mx-auto p-6 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-md"
+                     style={{background: "rgba(14,31,26,0.9)"}}>
+                    <h1 className="text-2xl font-bold mb-3">Сервис временно недоступен</h1>
+                    <p className="opacity-80 mb-4">
+                        Попробуй ещё раз позже. Мы сохраним прогресс, как только связь восстановится.
+                    </p>
+                    <button
+                        className="w-full rounded-2xl py-3 text-xl font-bold text-white
+                     bg-gradient-to-r from-rose-600 to-orange-600
+                     hover:from-rose-500 hover:to-orange-500 active:scale-[0.98] transition"
+                        onClick={async () => {
+                            // Локальный retry без перезагрузки страницы
+                            try {
+                                const u = await fetchUser();
+                                if (!u) {
+                                    setUser(null);
+                                    setAppStage("newUser");
+                                } else {
+                                    setUser(u);
+                                    setAppStage("dashboard");
+                                }
+                            } catch (e) {
+                                // остаёмся на serviceDown
+                                console.warn("retry fetchUser failed", e);
+                            }
+                        }}
+                    >
+                        Попробовать ещё раз
+                    </button>
+                </div>
+            </Shell>
+        );
+    }
+
+    // Новый пользователь
+    if (appStage === "newUser") {
+        return (
+            <Shell>
+                <h1 className="text-3xl font-extrabold text-center">Привет! Как тебя зовут?</h1>
+                <NameForm
+                    onSubmit={async (name, setError) => {
+                        await saveUserName(name);
+                        const u = await fetchUser();
+                        const savedName = u?.userName?.trim();
+                        if (!u || !savedName || savedName !== name.trim()) {
+                            setError("Что-то пошло не так. Попробуй ввести имя ещё раз.");
+                            return;
+                        }
+                        setUser(u);
                         setAppStage("dashboard");
                     }}
                 />
